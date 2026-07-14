@@ -1,4 +1,4 @@
-# Godot + godot-rust + Bevy ECS — derive procedural de apresentação
+# Godot + godot-rust + Bevy ECS — output agregado por Entity
 
 Projeto mínimo funcional com:
 
@@ -6,19 +6,20 @@ Projeto mínimo funcional com:
 - `bevy_ecs 0.19.0`;
 - modelo ECS agnóstico ao Godot;
 - systems de simulação e extração separados;
-- `PresentationOutput` como produto dos resultados do tick;
-- presenters especializados por domínio;
-- `GodotBridge` como fachada fina, sem loops por comando;
+- um único `EntityHashMap<EntityPatch>` para o estado final das entidades;
+- buffers de spawn/despawn drenados e reutilizados;
+- extractors globais explicitamente seriais com `.chain()`;
+- `GodotBridge` genérico sobre `P: Present<GodotPresentationContext>`;
 - derive procedural local `PresentOutput`;
-- atributos `#[present(order = N)]` para ordenar presenters em compilação.
+- atributos `#[present(order = N)]` para ordenar os domínios em compilação.
 
 ## Estrutura
 
 ```text
-godot_bevy_ecs_derive_demo/
+godot_bevy_ecs_entity_patch_demo/
 ├── rust/
-│   ├── Cargo.toml                 # crate principal + workspace
-│   ├── presentation_derive/       # crate proc-macro
+│   ├── Cargo.toml
+│   ├── presentation_derive/
 │   │   ├── Cargo.toml
 │   │   ├── src/lib.rs
 │   │   └── tests/derive.rs
@@ -32,11 +33,114 @@ godot_bevy_ecs_derive_demo/
 └── godot/
 ```
 
-## O que significa `#[present(order = N)]`
+## Refactor principal: um guarda-chuva por Entity
 
-`order` é uma **prioridade de aplicação**, não um atraso e não um número de
-frame. O derive ordena os campos pelo inteiro em ordem crescente e gera as
-chamadas a `Present::present`.
+O estado final de apresentação não usa mais um mapa separado por domínio,
+como `transforms: HashMap<Entity, ...>` e `health: HashMap<Entity, ...>`.
+Agora há um único mapa especializado para chaves `Entity`:
+
+```rust
+pub struct EntityPatches {
+    patches: EntityHashMap<EntityPatch>,
+}
+
+pub struct EntityPatch {
+    pub spatial: SpatialPatch,
+}
+
+pub struct SpatialPatch {
+    pub transform: Option<SimTransform2D>,
+}
+```
+
+Conceitualmente:
+
+```text
+PresentationOutput.entities
+├── Entity A
+│   └── spatial.transform = posição final
+└── Entity B
+    └── spatial.transform = posição final
+```
+
+Ao adicionar futuros estados como UI, animação persistente ou propriedades
+visuais, eles podem entrar em `EntityPatch`, sem criar um novo mapa global para
+cada tipo de patch.
+
+## Commands versus patches
+
+O output mantém duas categorias:
+
+```text
+SpawnCommands / DespawnCommands
+→ operações ordenadas
+→ armazenadas em Vec
+
+EntityPatches
+→ estado final declarativo por Entity
+→ armazenado em um único EntityHashMap
+→ última escrita vence
+```
+
+O transform pode ser escrito várias vezes no mesmo tick, mas somente seu valor
+final fica armazenado:
+
+```rust
+output.set_transform(entity, first);
+output.set_transform(entity, second);
+output.set_transform(entity, final_value);
+```
+
+O mapa termina com apenas `final_value` para essa entidade.
+
+## `Present` agora usa `&mut self`
+
+```rust
+pub trait Present<C> {
+    fn present(&mut self, context: &mut C);
+}
+```
+
+Essa alteração evita mover e destruir o `PresentationOutput` todo tick. Cada
+domínio drena seu buffer:
+
+```rust
+for request in self.requests.drain(..) {
+    // aplica spawn
+}
+
+for (entity, patch) in self.patches.drain() {
+    // aplica patch
+}
+```
+
+`drain()` esvazia a coleção, mas conserva a capacidade alocada. Isso reduz
+realocações em ticks futuros.
+
+O runtime agora apresenta diretamente o resource persistente:
+
+```rust
+let mut output = world.resource_mut::<PresentationOutput>();
+bridge.apply(&mut *output);
+```
+
+Não há mais `std::mem::take()` no fluxo normal.
+
+## `GodotBridge` genérico
+
+```rust
+pub fn apply<P>(&mut self, output: &mut P)
+where
+    P: Present<GodotPresentationContext> + ?Sized,
+{
+    output.present(&mut self.context);
+}
+```
+
+O bridge não conhece `spawns`, `entities` ou `despawns`. Ele apenas inicia a
+apresentação de qualquer tipo que implemente o contrato apropriado.
+
+## Derive procedural e `#[present(order = N)]`
 
 ```rust
 #[derive(Resource, Default, PresentOutput)]
@@ -45,105 +149,88 @@ struct PresentationOutput {
     spawns: SpawnCommands,
 
     #[present(order = 20)]
-    spatial: SpatialPatches,
+    entities: EntityPatches,
 
     #[present(order = 90)]
     despawns: DespawnCommands,
 }
 ```
 
-A expansão conceitual é:
+`order` é prioridade crescente de aplicação, não atraso nem número de frame.
+O macro gera conceitualmente:
 
 ```rust
 impl<C> Present<C> for PresentationOutput
 where
     SpawnCommands: Present<C>,
-    SpatialPatches: Present<C>,
+    EntityPatches: Present<C>,
     DespawnCommands: Present<C>,
 {
-    fn present(self, context: &mut C) {
+    fn present(&mut self, context: &mut C) {
         self.spawns.present(context);   // 10
-        self.spatial.present(context);  // 20
+        self.entities.present(context); // 20
         self.despawns.present(context); // 90
     }
 }
 ```
 
-Os intervalos 10, 20 e 90 permitem inserir novos domínios depois:
+A implementação gerada usa referências mutáveis, portanto os campos continuam
+existindo e reutilizam suas alocações após serem drenados.
 
-```text
-10 spawn
-20 spatial
-30 animation
-40 audio
-50 UI
-90 despawn
-```
+## Extractors globais explicitamente seriais
 
-Sem precisar renumerar tudo. Ordens duplicadas geram erro de compilação.
-Campos sem `#[present(order = N)]` também geram erro.
-
-## Por que isso evita o bridge inchado
-
-O bridge agora só coordena:
+Todos os extractors escrevem no mesmo `PresentationOutput`. Em vez de deixá-los
+numa tupla que poderia sugerir paralelismo, o schedule declara a ordem:
 
 ```rust
-pub fn apply(&mut self, output: PresentationOutput) {
-    output.present(&mut self.context);
-}
+schedule.add_systems(
+    (
+        extract_added_views,
+        extract_changed_transforms,
+        extract_despawn_requests,
+    )
+        .chain()
+        .in_set(GameSet::PresentationExtraction),
+);
 ```
 
-Os loops ficam nos presenters especializados:
+O fluxo fica explícito:
 
 ```text
-godot_bridge/presenters/
-├── lifecycle.rs   # SpawnCommands e DespawnCommands
-└── spatial.rs     # SpatialPatches
+extract_added_views
+→ extract_changed_transforms
+→ extract_despawn_requests
 ```
 
-Adicionar animações exigiria:
+O executor global não é mais forçado a `SingleThreaded`. Os systems de
+simulação continuam livres para serem organizados pelo Bevy conforme seus
+acessos; somente a fase de extração global é deliberadamente encadeada.
 
-1. criar `AnimationCommands` (normalmente contendo um enum `AnimationCommand`);
-2. implementar `Present<GodotPresentationContext>` para esse tipo;
-3. adicionar um campo com `#[present(order = 30)]`.
-
-O `GodotBridge::apply` não muda.
-
-## ADTs: soma dentro de produto
-
-`PresentationOutput` é um ADT de produto porque, no mesmo tick, podem existir
-simultaneamente spawns, patches espaciais e despawns.
-
-Dentro de um domínio com operações alternativas, use um ADT de soma. Exemplo
-para uma futura camada de animação:
-
-```rust
-pub enum AnimationCommand {
-    Play { entity: Entity, animation: AnimationId },
-    Stop { entity: Entity },
-    SetSpeed { entity: Entity, speed: f32 },
-}
-
-pub struct AnimationCommands(Vec<AnimationCommand>);
-```
-
-Transform é diferente: ele representa estado final, então `SpatialPatches` usa
-`HashMap<Entity, SimTransform2D>` e a última escrita do tick vence.
-
-## Fluxo do tick
+## Ciclo completo do tick
 
 ```text
-Godot Input
-  -> PlayerInput / DeltaTime
-  -> Simulation Systems
-  -> Extraction Systems
-  -> PresentationOutput
-  -> derive PresentOutput (ordena campos)
-  -> Spawn presenter
-  -> Spatial presenter
-  -> Despawn presenter
-  -> Nodes Godot
+Godot captura input
+→ EcsRuntime atualiza PlayerInput e DeltaTime
+→ Schedule executa Simulation
+→ Commands estruturais são aplicados
+→ Extraction serial preenche PresentationOutput
+→ Cleanup remove Entities marcadas
+→ GodotBridge apresenta o mesmo output por &mut
+→ SpawnCommands.drain()
+→ EntityPatches.drain()
+→ DespawnCommands.drain()
+→ clear_trackers()
 ```
+
+## Memória
+
+- `PresentationOutput` não cresce por acumulação de ticks: seus buffers são
+  drenados após cada apresentação.
+- As coleções conservam a capacidade do maior pico recente para reutilização;
+  isso é retenção de capacidade, não vazamento.
+- `ViewRegistry` contém apenas views ativas e remove a entrada no despawn.
+- Tanto os patches quanto o registry usam `EntityHashMap`, otimizado pelo Bevy
+  para chaves `Entity`.
 
 ## Executar
 
@@ -175,8 +262,9 @@ Depois abra `godot/` no Godot 4.6+ e execute.
 - Espaço: criar inimigo;
 - Delete: remover inimigos.
 
-## Observação de validação
+## Validação incluída
 
-O teste em `rust/presentation_derive/tests/derive.rs` declara os campos fora de
-ordem física (`90`, `10`, `40`) e verifica que o derive os executa como
-`10 -> 40 -> 90`.
+O teste em `rust/presentation_derive/tests/derive.rs` verifica:
+
+- execução na ordem dos atributos (`10 -> 40 -> 90`);
+- reutilização do mesmo output em duas chamadas consecutivas de `present`.
