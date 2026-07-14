@@ -1,35 +1,23 @@
 use bevy_ecs::{entity::EntityHashMap, prelude::*};
 use presentation_derive::PresentOutput;
 
-use crate::model::components::SimTransform2D;
+use crate::model::components::SimPosition2D;
 
-/// Tipo lógico de view. O mapeamento para `PackedScene` fica no lado Godot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum ViewKind {
-    Player,
-    Enemy,
-}
-
-/// Pedido de criação de uma view.
+/// Pedido de criação da view de uma entidade.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SpawnView {
     pub(crate) entity: Entity,
-    pub(crate) kind: ViewKind,
-    pub(crate) transform: SimTransform2D,
 }
 
-/// Lote ordenado de criações de views.
-///
-/// O `Vec` é drenado após a apresentação, preservando sua capacidade para os
-/// próximos ticks.
+/// Operações ordenadas de criação.
 #[derive(Default, Debug)]
 pub(crate) struct SpawnCommands {
     requests: Vec<SpawnView>,
 }
 
 impl SpawnCommands {
-    fn push(&mut self, request: SpawnView) {
-        self.requests.push(request);
+    fn push(&mut self, entity: Entity) {
+        self.requests.push(SpawnView { entity });
     }
 
     pub(crate) fn drain(
@@ -39,46 +27,23 @@ impl SpawnCommands {
     }
 }
 
-/// Parte espacial do estado final de uma única entidade naquele tick.
-///
-/// Campos opcionais distinguem "não houve patch" de "aplique este valor".
-#[derive(Default, Debug)]
-pub(crate) struct SpatialPatch {
-    pub(crate) transform: Option<SimTransform2D>,
-}
-
-/// Guarda-chuva de patches de apresentação de uma entidade.
-///
-/// Novos domínios de estado podem ser adicionados aqui no futuro, por exemplo:
-/// `visual`, `animation_state` ou `ui`, sem criar um novo mapa por domínio.
+/// Estado final de apresentação de uma entidade naquele tick.
 #[derive(Default, Debug)]
 pub(crate) struct EntityPatch {
-    pub(crate) spatial: SpatialPatch,
+    pub(crate) position: Option<SimPosition2D>,
 }
 
-/// Estado final agregado por entidade.
-///
-/// Existe um único `EntityHashMap` para todos os patches orientados a entidade.
-/// Cada nova escrita atualiza o mesmo `EntityPatch`, e o último valor vence.
+/// Um único mapa agrega os patches das entidades alteradas.
 #[derive(Default, Debug)]
 pub(crate) struct EntityPatches {
     patches: EntityHashMap<EntityPatch>,
 }
 
 impl EntityPatches {
-    fn patch_mut(&mut self, entity: Entity) -> &mut EntityPatch {
-        self.patches.entry(entity).or_default()
+    fn set_position(&mut self, entity: Entity, position: SimPosition2D) {
+        self.patches.entry(entity).or_default().position = Some(position);
     }
 
-    fn set_transform(
-        &mut self,
-        entity: Entity,
-        transform: SimTransform2D,
-    ) {
-        self.patch_mut(entity).spatial.transform = Some(transform);
-    }
-
-    /// Esvazia o mapa, mas conserva sua alocação para reutilização.
     pub(crate) fn drain(
         &mut self,
     ) -> impl Iterator<Item = (Entity, EntityPatch)> + '_ {
@@ -86,72 +51,28 @@ impl EntityPatches {
     }
 }
 
-/// Lote ordenado de remoções de views.
-///
-/// Assim como os spawns, é drenado após a apresentação para reutilizar a
-/// capacidade do `Vec` nos ticks seguintes.
-#[derive(Default, Debug)]
-pub(crate) struct DespawnCommands {
-    entities: Vec<Entity>,
-}
-
-impl DespawnCommands {
-    fn push(&mut self, entity: Entity) {
-        self.entities.push(entity);
-    }
-
-    pub(crate) fn drain(
-        &mut self,
-    ) -> impl Iterator<Item = Entity> + '_ {
-        self.entities.drain(..)
-    }
-}
-
-/// Produto dos resultados independentes de apresentação de um tick.
-///
-/// `#[present(order = N)]` é lido pelo derive procedural. O número não é uma
-/// espera temporal nem um frame: é apenas prioridade crescente de aplicação.
-///
-/// O mesmo resource permanece no `World`; seus campos são drenados, e não
-/// substituídos por estruturas novas a cada tick.
+/// Saída reutilizável produzida pelos extractors.
 #[derive(Resource, Default, Debug, PresentOutput)]
 pub(crate) struct PresentationOutput {
-    /// Views precisam existir antes de receber patches.
+    /// A view precisa existir antes de receber seu primeiro patch.
     #[present(order = 10)]
     spawns: SpawnCommands,
 
-    /// Um único mapa reúne o estado final de cada entidade alterada.
+    /// Posições finais são aplicadas depois dos spawns.
     #[present(order = 20)]
     entities: EntityPatches,
-
-    /// Remoções são aplicadas por último.
-    #[present(order = 90)]
-    despawns: DespawnCommands,
 }
 
 impl PresentationOutput {
-    pub(crate) fn spawn_view(
-        &mut self,
-        entity: Entity,
-        kind: ViewKind,
-        transform: SimTransform2D,
-    ) {
-        self.spawns.push(SpawnView {
-            entity,
-            kind,
-            transform,
-        });
+    pub(crate) fn spawn_view(&mut self, entity: Entity) {
+        self.spawns.push(entity);
     }
 
-    pub(crate) fn set_transform(
+    pub(crate) fn set_position(
         &mut self,
         entity: Entity,
-        transform: SimTransform2D,
+        position: SimPosition2D,
     ) {
-        self.entities.set_transform(entity, transform);
-    }
-
-    pub(crate) fn despawn_view(&mut self, entity: Entity) {
-        self.despawns.push(entity);
+        self.entities.set_position(entity, position);
     }
 }

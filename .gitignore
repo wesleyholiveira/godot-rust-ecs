@@ -1,5 +1,4 @@
 /rust/target/
-/godot/.godot/*
-!/godot/.godot/extension_list.cfg
+/godot/.godot/
 *.pdb
 *.dSYM/

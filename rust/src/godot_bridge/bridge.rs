@@ -2,11 +2,7 @@ use crate::presentation::Present;
 
 use super::context::GodotPresentationContext;
 
-/// Fachada fina da camada de apresentação Godot.
-///
-/// O bridge aceita qualquer saída que implemente `Present` para o contexto do
-/// Godot. O derive procedural compõe os domínios; cada presenter drena seu
-/// próprio buffer e preserva as alocações para os ticks seguintes.
+/// Fachada fina: inicia a aplicação serial da saída no Godot.
 #[derive(Default)]
 pub(crate) struct GodotBridge {
     context: GodotPresentationContext,

@@ -1,29 +1,18 @@
 use godot::{classes::Node, prelude::*};
 
-use crate::presentation::{DespawnCommands, Present, SpawnCommands};
+use crate::presentation::{Present, SpawnCommands};
 
-use super::super::{
-    context::GodotPresentationContext,
-    scene_factory::SceneFactory,
-};
+use super::super::context::GodotPresentationContext;
 
-/// Presenter especializado em criação de views.
 impl Present<GodotPresentationContext> for SpawnCommands {
     fn present(&mut self, context: &mut GodotPresentationContext) {
         for request in self.drain() {
             if context.views.contains(request.entity) {
-                godot_warn!(
-                    "A Entity {:?} já possui uma view",
-                    request.entity,
-                );
                 continue;
             }
 
-            let Some(mut node) = context.scenes.instantiate(request.kind) else {
-                godot_error!(
-                    "Não foi possível instanciar {} como Node2D",
-                    SceneFactory::scene_path(request.kind),
-                );
+            let Some(node) = context.scenes.instantiate_player() else {
+                godot_error!("Não foi possível instanciar player.tscn");
                 continue;
             };
 
@@ -32,28 +21,9 @@ impl Present<GodotPresentationContext> for SpawnCommands {
                 return;
             };
 
-            node.set_position(Vector2::new(
-                request.transform.x,
-                request.transform.y,
-            ));
-            node.set_rotation(request.transform.rotation);
-
             let node_as_base: Gd<Node> = node.clone().upcast();
             root.add_child(&node_as_base);
             context.views.insert(request.entity, node);
-        }
-    }
-}
-
-/// Presenter especializado em remoção de views.
-impl Present<GodotPresentationContext> for DespawnCommands {
-    fn present(&mut self, context: &mut GodotPresentationContext) {
-        for entity in self.drain() {
-            let Some(mut node) = context.views.remove(entity) else {
-                continue;
-            };
-
-            node.queue_free();
         }
     }
 }

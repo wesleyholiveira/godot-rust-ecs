@@ -1,9 +1,8 @@
-//! GDExtension Godot + Bevy ECS com composição de presenters gerada por derive.
+//! Exemplo mínimo de Godot + godot-rust + bevy_ecs.
 //!
 //! Fluxo por physics tick:
 //! Godot Input -> Resources -> Simulation -> Extraction serial
-//! -> PresentationOutput reutilizável -> Present<Context>
-//! -> presenters especializados -> Nodes Godot.
+//! -> PresentationOutput -> Present<Context> -> Nodes Godot.
 
 mod extension;
 mod godot_bridge;
