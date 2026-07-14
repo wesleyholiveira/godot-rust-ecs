@@ -1,10 +1,10 @@
-# Godot + godot-rust + Bevy ECS
+# Godot + godot-rust + Bevy ECS — proxy de apresentação
 
 Exemplo mínimo funcional com a estrutura recomendada:
 
 ```text
-godot_bevy_ecs_demo/
-├── rust/   # cdylib Rust: modelo ECS, extração e bridge
+godot_bevy_ecs_proxy_demo/
+├── rust/   # cdylib Rust: modelo ECS, proxy e bridge
 └── godot/  # projeto Godot, cenas e assets
 ```
 
@@ -44,7 +44,7 @@ Depois abra a pasta `godot/` no Godot e execute a cena principal.
 - **Espaço**: criar um inimigo.
 - **Delete**: remover todos os inimigos.
 
-## Arquitetura
+## Fluxo da arquitetura
 
 ```text
 Godot Input
@@ -55,18 +55,52 @@ Simulation Systems
     ↓
 Presentation Extraction Systems
     ↓
-PresentationFrame
+PresentationCommands (proxy deferred)
     ↓
-GodotBridge
+Vec<ViewCommand>
+    ↓
+GodotBridge (adapter)
     ↓
 Node2D / PackedScene / queue_free
 ```
+
+## O que mudou nesta refatoração
+
+A versão anterior expunha os vetores de um `PresentationFrame` aos systems:
+
+```rust
+frame.spawns.push(...);
+frame.transforms.push(...);
+frame.despawns.push(...);
+```
+
+Agora existe uma fachada padronizada:
+
+```rust
+presentation.spawn_view(entity, kind, transform);
+presentation.set_transform(entity, transform);
+presentation.despawn_view(entity);
+```
+
+Os systems não conhecem os vetores internos nem o `GodotBridge`. O proxy converte as chamadas em um contrato único:
+
+```rust
+enum ViewCommand {
+    Spawn(SpawnView),
+    SetTransform(TransformUpdate),
+    Despawn(Entity),
+}
+```
+
+O proxy continua **deferred**: ele apenas acumula comandos. A API do Godot só é chamada depois que o `Schedule` termina.
+
+## Responsabilidades
 
 ### `World`
 
 Contém Entities, Components e Resources.
 
-### Components
+### Components do modelo
 
 - `SimTransform2D`: posição/rotação lógica, fonte da verdade.
 - `MoveSpeed`: velocidade por entidade.
@@ -79,7 +113,7 @@ Contém Entities, Components e Resources.
 - `PlayerInput`: snapshot do input do tick.
 - `DeltaTime`: delta do `_physics_process`.
 - `EnemySpawnSequence`: estado global do spawner de exemplo.
-- `PresentationFrame`: buffer de saída daquele tick.
+- `PresentationCommands`: proxy/buffer de saída do tick.
 
 ### Systems de simulação
 
@@ -87,24 +121,51 @@ Alteram apenas o modelo ECS. `Commands` enfileira mudanças estruturais no `Worl
 
 ### Systems de extração
 
-Observam `Added<T>` e `Changed<T>` e produzem um único `PresentationFrame` por tick. Eles não chamam a API do Godot.
+Observam `Added<T>` e `Changed<T>` e chamam a API do proxy. Eles não chamam o Godot:
+
+```text
+extract_added_views       -> spawn_view(...)
+extract_changed_transforms -> set_transform(...)
+extract_despawn_requests  -> despawn_view(...)
+```
+
+### `PresentationCommands`
+
+É a fachada/proxy entre os extractors e o adapter:
+
+- esconde a estrutura interna da fila;
+- fornece métodos uniformes e tipados;
+- acumula `ViewCommand`s;
+- não conhece `Gd<Node>` nem chama o Godot;
+- ao ser drenado, ordena `Spawn -> SetTransform -> Despawn`.
+
+### `ViewCommand`
+
+É a unidade do contrato de apresentação. Cada variante representa uma intenção que o backend pode aplicar.
 
 ### `GodotBridge`
 
-É o adapter concreto entre os dois lados. Mantém:
+É o adapter concreto. Mantém:
 
 ```text
 HashMap<Entity, Gd<Node2D>>
 ```
 
-Ele instancia cenas, aplica transforms e chama `queue_free()`.
+Ele recebe os `ViewCommand`s, instancia cenas, aplica transforms e chama `queue_free()`.
 
-### Filas e buffers usados
+## As duas filas da arquitetura
 
 Há dois mecanismos diferentes:
 
-1. `Commands`: fila interna do Bevy para modificar estruturalmente o ECS depois que o system termina.
-2. `PresentationFrame`: buffer criado pelo projeto para transportar os resultados do ECS até a camada Godot.
+1. **`Commands` do Bevy**: fila interna para modificar estruturalmente o ECS (`spawn`, `insert`, `remove`, `despawn`).
+2. **`PresentationCommands` do projeto**: proxy/buffer para transportar intenções visuais até o `GodotBridge`.
+
+O segundo não chama o bridge imediatamente. Isso preserva:
+
+- desacoplamento do modelo em relação ao Godot;
+- execução da API Godot somente fora do `Schedule`;
+- ordem determinística do ciclo de vida;
+- possibilidade de testar o ECS sem iniciar a engine.
 
 Não são usados `MessageReader`/`MessageWriter` neste exemplo.
 
@@ -122,12 +183,51 @@ rust/src/
 │       ├── movement.rs
 │       └── lifecycle.rs
 ├── presentation/
-│   ├── components.rs
-│   ├── contracts.rs
-│   └── extraction.rs
+│   ├── commands.rs       # ViewCommand + PresentationCommands
+│   ├── components.rs     # ViewSpec
+│   └── extraction.rs     # modelo -> proxy
 └── godot_bridge/
-    ├── bridge.rs
-    └── runtime.rs
+    ├── bridge.rs         # ViewCommand -> API Godot
+    └── runtime.rs        # orquestra o tick
+```
+
+## Fluxos concretos
+
+### Movimento
+
+```text
+WASD
+-> PlayerInput
+-> player_movement_system
+-> SimTransform2D alterado
+-> extract_changed_transforms
+-> PresentationCommands::set_transform
+-> ViewCommand::SetTransform
+-> GodotBridge
+-> Node2D.set_position
+```
+
+### Spawn
+
+```text
+Commands::spawn
+-> Entity + ViewSpec adicionados ao World
+-> extract_added_views
+-> PresentationCommands::spawn_view
+-> ViewCommand::Spawn
+-> GodotBridge instancia PackedScene
+-> registra Entity -> Node2D
+```
+
+### Despawn
+
+```text
+DespawnRequested
+-> extract_despawn_requests
+-> PresentationCommands::despawn_view
+-> ViewCommand::Despawn
+-> cleanup remove a Entity
+-> GodotBridge remove o HashMap e chama queue_free
 ```
 
 ## Nota sobre versões do Godot
