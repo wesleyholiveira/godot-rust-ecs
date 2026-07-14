@@ -2,24 +2,23 @@ use bevy_ecs::prelude::*;
 
 use crate::{
     model::components::{DespawnRequested, SimTransform2D},
-    presentation::{PresentationFrame, SpawnView, TransformUpdate, ViewSpec},
+    presentation::{PresentationCommands, ViewSpec},
 };
 
-/// Converte entidades com `ViewSpec` recém-adicionado em pedidos de spawn.
+/// Converte entidades com `ViewSpec` recém-adicionado em uma intenção de spawn.
+///
+/// O system usa a API do proxy; ele não manipula a fila diretamente e não
+/// conhece o `GodotBridge`.
 pub(crate) fn extract_added_views(
     added_views: Query<(Entity, &ViewSpec, &SimTransform2D), Added<ViewSpec>>,
-    mut frame: ResMut<PresentationFrame>,
+    mut presentation: ResMut<PresentationCommands>,
 ) {
     for (entity, view, transform) in &added_views {
-        frame.spawns.push(SpawnView {
-            entity,
-            kind: view.kind,
-            transform: *transform,
-        });
+        presentation.spawn_view(entity, view.kind, *transform);
     }
 }
 
-/// Copia para o frame somente transforms inseridos ou alterados.
+/// Converte transforms inseridos ou alterados em comandos de apresentação.
 pub(crate) fn extract_changed_transforms(
     transforms: Query<
         (Entity, &SimTransform2D),
@@ -29,20 +28,19 @@ pub(crate) fn extract_changed_transforms(
             Without<DespawnRequested>,
         ),
     >,
-    mut frame: ResMut<PresentationFrame>,
+    mut presentation: ResMut<PresentationCommands>,
 ) {
     for (entity, transform) in &transforms {
-        frame.transforms.push(TransformUpdate {
-            entity,
-            transform: *transform,
-        });
+        presentation.set_transform(entity, *transform);
     }
 }
 
-/// Registra quais views devem ser removidas antes do cleanup destruir a Entity.
+/// Registra a remoção da view antes que o cleanup destrua a Entity.
 pub(crate) fn extract_despawn_requests(
     entities: Query<Entity, Added<DespawnRequested>>,
-    mut frame: ResMut<PresentationFrame>,
+    mut presentation: ResMut<PresentationCommands>,
 ) {
-    frame.despawns.extend(entities.iter());
+    for entity in &entities {
+        presentation.despawn_view(entity);
+    }
 }

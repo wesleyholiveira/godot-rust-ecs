@@ -1,6 +1,6 @@
 use bevy_ecs::prelude::*;
 
-use super::contracts::ViewKind;
+use super::commands::ViewKind;
 
 /// Componente de apresentação: indica que a entidade precisa de uma view.
 ///

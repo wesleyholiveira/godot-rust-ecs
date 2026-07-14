@@ -9,6 +9,8 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+# godot-rust 0.5 usa a API Godot 4.6 por padrão.
 godot = "0.5.4"
 
+# Usamos somente o ECS do Bevy, sem janela/renderização do Bevy.
 bevy_ecs = "0.19.0"

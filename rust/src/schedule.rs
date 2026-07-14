@@ -24,7 +24,7 @@ pub(crate) fn build_schedule() -> Schedule {
 
     // Para este exemplo pequeno, single-thread reduz cerimônia e overhead.
     // Todos os acessos à API do Godot continuam fora do Schedule.
-    schedule.set_executor(SingleThreadedExecutor::default());
+    schedule.set_executor(SingleThreadedExecutor::new());
 
     // O encadeamento garante a ordem das fases. O scheduler aplica os Commands
     // diferidos nos pontos de sincronização necessários entre fases ordenadas.

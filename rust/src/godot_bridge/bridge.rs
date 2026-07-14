@@ -7,11 +7,12 @@ use godot::{
     tools::try_load,
 };
 
-use crate::presentation::{
-    PresentationFrame, SpawnView, TransformUpdate, ViewKind,
-};
+use crate::presentation::{SpawnView, TransformUpdate, ViewCommand, ViewKind};
 
 /// Adapter concreto entre o contrato de apresentação e a API do Godot.
+///
+/// O bridge é o único componente da arquitetura que conhece simultaneamente
+/// `Entity` do Bevy e os tipos concretos do Godot.
 #[derive(Default)]
 pub(crate) struct GodotBridge {
     /// Pai comum de todas as views criadas pelo ECS.
@@ -31,25 +32,22 @@ impl GodotBridge {
         self.load_scene(ViewKind::Enemy);
     }
 
-    pub(crate) fn apply(&mut self, frame: PresentationFrame) {
-        let PresentationFrame {
-            spawns,
-            transforms,
-            despawns,
-        } = frame;
-
-        // A ordem evita tentar atualizar uma view antes de ela existir e evita
-        // atualizações depois que a remoção já foi solicitada.
-        for spawn in spawns {
-            self.spawn_view(spawn);
-        }
-
-        for transform in transforms {
-            self.update_transform(transform);
-        }
-
-        for entity in despawns {
-            self.despawn_view(entity);
+    /// Aplica os comandos produzidos pelo proxy depois do `Schedule`.
+    ///
+    /// `PresentationCommands::take_ordered` já garante a ordem de ciclo de
+    /// vida: Spawn -> SetTransform -> Despawn.
+    pub(crate) fn apply(
+        &mut self,
+        commands: impl IntoIterator<Item = ViewCommand>,
+    ) {
+        for command in commands {
+            match command {
+                ViewCommand::Spawn(request) => self.spawn_view(request),
+                ViewCommand::SetTransform(update) => {
+                    self.update_transform(update)
+                }
+                ViewCommand::Despawn(entity) => self.despawn_view(entity),
+            }
         }
     }
 
@@ -110,7 +108,7 @@ impl GodotBridge {
 
     fn update_transform(&mut self, update: TransformUpdate) {
         let Some(node) = self.views.get_mut(&update.entity) else {
-            // Entidades lógicas podem existir sem uma view.
+            // Entidades puramente lógicas podem existir sem uma view.
             return;
         };
 

@@ -10,14 +10,14 @@ use crate::{
         components::{MoveSpeed, Player, SimTransform2D},
         resources::{DeltaTime, EnemySpawnSequence, PlayerInput},
     },
-    presentation::{PresentationFrame, ViewKind, ViewSpec},
+    presentation::{PresentationCommands, ViewKind, ViewSpec},
     schedule::build_schedule,
 };
 
 /// Node Godot que coordena a integração.
 ///
-/// Ele é a fronteira de entrada e saída: captura input do Godot, executa o ECS
-/// e entrega o PresentationFrame ao adapter.
+/// Ele é a fronteira de entrada e saída: captura input do Godot, executa o ECS,
+/// drena o proxy de apresentação e entrega os comandos ao adapter.
 #[derive(GodotClass)]
 #[class(base = Node)]
 pub(crate) struct EcsRuntime {
@@ -35,7 +35,7 @@ impl INode for EcsRuntime {
         world.insert_resource(PlayerInput::default());
         world.insert_resource(DeltaTime::default());
         world.insert_resource(EnemySpawnSequence::default());
-        world.insert_resource(PresentationFrame::default());
+        world.insert_resource(PresentationCommands::default());
 
         Self {
             base,
@@ -46,8 +46,8 @@ impl INode for EcsRuntime {
     }
 
     fn ready(&mut self) {
-        // O ready faz apenas o bootstrap. Novas views são criadas/removidas
-        // continuamente por PresentationFrame + GodotBridge nos ticks seguintes.
+        // O ready faz somente o bootstrap. Views novas e removidas são tratadas
+        // continuamente pelo proxy + bridge nos ticks seguintes.
         let mut views_root = Node2D::new_alloc();
         views_root.set_name("EcsViews");
         let views_root_as_base: Gd<Node> = views_root.clone().upcast();
@@ -55,7 +55,7 @@ impl INode for EcsRuntime {
         self.bridge.initialize(views_root);
 
         // Cria somente a entidade lógica. No primeiro tick, Added<ViewSpec> será
-        // extraído para PresentationFrame.spawns e o bridge instanciará player.tscn.
+        // traduzido para ViewCommand::Spawn pelo system de extração.
         let player_entity = self
             .world
             .spawn((
@@ -105,21 +105,24 @@ impl INode for EcsRuntime {
 
         // ------------------------------------------------------------------
         // 3) Simulation -> PresentationExtraction -> Cleanup.
+        //
+        // Os extractors chamam o proxy PresentationCommands, que apenas
+        // acumula ViewCommands e não toca na API do Godot.
         // ------------------------------------------------------------------
         self.schedule.run(&mut self.world);
 
         // ------------------------------------------------------------------
-        // 4) Retira o buffer do tick sem clonar seus Vecs.
+        // 4) Drena o proxy sem clonar a fila e encerra o borrow do World.
         // ------------------------------------------------------------------
-        let frame = {
-            let mut resource = self.world.resource_mut::<PresentationFrame>();
-            std::mem::take(&mut *resource)
-        };
+        let commands = self
+            .world
+            .resource_mut::<PresentationCommands>()
+            .take_ordered();
 
         // ------------------------------------------------------------------
-        // 5) ECS -> Godot. Só o bridge toca nos Nodes.
+        // 5) ECS -> Godot. Só o adapter toca nos Nodes.
         // ------------------------------------------------------------------
-        self.bridge.apply(frame);
+        self.bridge.apply(commands);
 
         // Delimita a rodada de change tracking no uso standalone de bevy_ecs.
         self.world.clear_trackers();
