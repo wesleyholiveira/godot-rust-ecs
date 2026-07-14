@@ -2,7 +2,7 @@ use presentation_derive::PresentOutput;
 
 mod presentation {
     pub trait Present<Context> {
-        fn present(self, context: &mut Context);
+        fn present(&mut self, context: &mut Context);
     }
 }
 
@@ -16,19 +16,19 @@ struct Middle;
 struct Last;
 
 impl Present<Log> for First {
-    fn present(self, context: &mut Log) {
+    fn present(&mut self, context: &mut Log) {
         context.0.push("first");
     }
 }
 
 impl Present<Log> for Middle {
-    fn present(self, context: &mut Log) {
+    fn present(&mut self, context: &mut Log) {
         context.0.push("middle");
     }
 }
 
 impl Present<Log> for Last {
-    fn present(self, context: &mut Log) {
+    fn present(&mut self, context: &mut Log) {
         context.0.push("last");
     }
 }
@@ -47,8 +47,8 @@ struct Output {
 }
 
 #[test]
-fn presents_fields_in_attribute_order() {
-    let output = Output {
+fn presents_fields_in_attribute_order_and_can_be_reused() {
+    let mut output = Output {
         last: Last,
         first: First,
         middle: Middle,
@@ -56,6 +56,10 @@ fn presents_fields_in_attribute_order() {
     let mut log = Log::default();
 
     output.present(&mut log);
+    output.present(&mut log);
 
-    assert_eq!(log.0, ["first", "middle", "last"]);
+    assert_eq!(
+        log.0,
+        ["first", "middle", "last", "first", "middle", "last"]
+    );
 }

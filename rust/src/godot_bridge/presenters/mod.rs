@@ -1,4 +1,5 @@
-// Os módulos existem para registrar os impls de Present<GodotContext>.
-// O GodotBridge não precisa conhecê-los individualmente.
+// Os módulos existem para registrar os impls de
+// `Present<GodotPresentationContext>`. O `GodotBridge` não precisa conhecer
+// cada domínio individualmente.
+mod entities;
 mod lifecycle;
-mod spatial;

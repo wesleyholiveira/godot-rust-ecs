@@ -9,8 +9,8 @@ use super::super::{
 
 /// Presenter especializado em criação de views.
 impl Present<GodotPresentationContext> for SpawnCommands {
-    fn present(self, context: &mut GodotPresentationContext) {
-        for request in self.into_requests() {
+    fn present(&mut self, context: &mut GodotPresentationContext) {
+        for request in self.drain() {
             if context.views.contains(request.entity) {
                 godot_warn!(
                     "A Entity {:?} já possui uma view",
@@ -47,8 +47,8 @@ impl Present<GodotPresentationContext> for SpawnCommands {
 
 /// Presenter especializado em remoção de views.
 impl Present<GodotPresentationContext> for DespawnCommands {
-    fn present(self, context: &mut GodotPresentationContext) {
-        for entity in self.into_entities() {
+    fn present(&mut self, context: &mut GodotPresentationContext) {
+        for entity in self.drain() {
             let Some(mut node) = context.views.remove(entity) else {
                 continue;
             };

@@ -1,7 +1,4 @@
-use bevy_ecs::{
-    prelude::*,
-    schedule::{Schedule, SingleThreadedExecutor},
-};
+use bevy_ecs::{prelude::*, schedule::Schedule};
 
 use crate::{
     model::systems::{
@@ -20,7 +17,6 @@ enum GameSet {
 
 pub(crate) fn build_schedule() -> Schedule {
     let mut schedule = Schedule::default();
-    schedule.set_executor(SingleThreadedExecutor::new());
 
     schedule.configure_sets(
         (
@@ -31,6 +27,8 @@ pub(crate) fn build_schedule() -> Schedule {
             .chain(),
     );
 
+    // Systems de simulação continuam livres para o executor do Bevy organizar
+    // conforme seus acessos a componentes e resources.
     schedule.add_systems(
         (
             player_movement_system,
@@ -40,12 +38,17 @@ pub(crate) fn build_schedule() -> Schedule {
             .in_set(GameSet::Simulation),
     );
 
+    // Todos os extractors globais escrevem no mesmo `PresentationOutput`.
+    // O `.chain()` torna a serialização e a ordem intencionais e visíveis:
+    //
+    // added views -> patches finais -> pedidos de despawn.
     schedule.add_systems(
         (
             extract_added_views,
             extract_changed_transforms,
             extract_despawn_requests,
         )
+            .chain()
             .in_set(GameSet::PresentationExtraction),
     );
 

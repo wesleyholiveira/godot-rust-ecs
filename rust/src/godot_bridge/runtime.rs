@@ -88,20 +88,19 @@ impl INode for EcsRuntime {
         };
         self.world.resource_mut::<DeltaTime>().seconds = delta as f32;
 
-        // 2) Simulation -> Extraction -> Cleanup.
+        // 2) Simulation -> Extraction serial explícita -> Cleanup.
         self.schedule.run(&mut self.world);
 
-        // 3) Move o produto de apresentação para fora do World e deixa outro
-        // `default()` vazio para o tick seguinte.
-        let output = {
-            let mut output =
-                self.world.resource_mut::<PresentationOutput>();
-            std::mem::take(&mut *output)
-        };
+        // 3) Apresenta drenando o mesmo resource. Não usamos `mem::take`:
+        // os Vecs e EntityHashMaps conservam a capacidade alocada.
+        {
+            let world = &mut self.world;
+            let bridge = &mut self.bridge;
+            let mut output = world.resource_mut::<PresentationOutput>();
+            bridge.apply(&mut *output);
+        }
 
-        // 4) O derive chama cada presenter em ordem crescente de `order`.
-        self.bridge.apply(output);
-
+        // 4) Inicia a próxima janela de change detection.
         self.world.clear_trackers();
     }
 }

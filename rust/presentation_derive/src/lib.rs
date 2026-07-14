@@ -2,16 +2,17 @@
 //!
 //! O macro espera uma struct com campos nomeados. Cada campo recebe
 //! `#[present(order = N)]`. Ele gera uma implementação de
-//! `crate::presentation::Present<C>` que consome os campos em ordem crescente.
+//! `crate::presentation::Present<C>` que apresenta os campos em ordem
+//! crescente, por referência mutável, permitindo que cada domínio drene e
+//! reutilize seus buffers.
 
 use std::collections::HashMap;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse_macro_input, parse_quote,
+    Data, DeriveInput, Error, Field, Fields, LitInt, Result, parse_macro_input, parse_quote,
     spanned::Spanned,
-    Data, DeriveInput, Error, Field, Fields, LitInt, Result,
 };
 
 /// Gera a composição de presenters para uma struct de saída.
@@ -24,7 +25,7 @@ use syn::{
 ///     #[present(order = 10)]
 ///     spawns: SpawnCommands,
 ///     #[present(order = 20)]
-///     spatial: SpatialPatches,
+///     entities: EntityPatches,
 ///     #[present(order = 90)]
 ///     despawns: DespawnCommands,
 /// }
@@ -66,9 +67,10 @@ fn expand_present_output(input: DeriveInput) -> Result<proc_macro2::TokenStream>
     let mut used_orders: HashMap<u32, syn::Ident> = HashMap::new();
 
     for field in fields {
-        let ident = field.ident.clone().ok_or_else(|| {
-            Error::new(field.span(), "campo nomeado esperado")
-        })?;
+        let ident = field
+            .ident
+            .clone()
+            .ok_or_else(|| Error::new(field.span(), "campo nomeado esperado"))?;
         let order = parse_order(&field)?;
 
         if let Some(previous) = used_orders.insert(order, ident.clone()) {
@@ -85,14 +87,8 @@ fn expand_present_output(input: DeriveInput) -> Result<proc_macro2::TokenStream>
 
     ordered_fields.sort_by_key(|(order, _, _)| *order);
 
-    let field_idents: Vec<_> = ordered_fields
-        .iter()
-        .map(|(_, ident, _)| ident)
-        .collect();
-    let field_types: Vec<_> = ordered_fields
-        .iter()
-        .map(|(_, _, ty)| ty)
-        .collect();
+    let field_idents: Vec<_> = ordered_fields.iter().map(|(_, ident, _)| ident).collect();
+    let field_types: Vec<_> = ordered_fields.iter().map(|(_, _, ty)| ty).collect();
 
     // O impl é genérico sobre o contexto. Assim o derive não conhece Godot:
     // ele só exige que cada campo saiba se apresentar naquele contexto.
@@ -110,8 +106,7 @@ fn expand_present_output(input: DeriveInput) -> Result<proc_macro2::TokenStream>
         }
     }
 
-    let (impl_generics_tokens, _, where_clause) =
-        impl_generics.split_for_impl();
+    let (impl_generics_tokens, _, where_clause) = impl_generics.split_for_impl();
     let (_, type_generics, _) = original_generics.split_for_impl();
 
     Ok(quote! {
@@ -121,14 +116,12 @@ fn expand_present_output(input: DeriveInput) -> Result<proc_macro2::TokenStream>
             #where_clause
         {
             fn present(
-                self,
+                &mut self,
                 context: &mut __PresentationContext,
             ) {
-                let Self { #(#field_idents),* } = self;
-
                 #(
                     <#field_types as crate::presentation::Present<__PresentationContext>>::present(
-                        #field_idents,
+                        &mut self.#field_idents,
                         context,
                     );
                 )*
@@ -150,9 +143,7 @@ fn parse_order(field: &Field) -> Result<u32> {
 
         attribute.parse_nested_meta(|meta| {
             if !meta.path.is_ident("order") {
-                return Err(meta.error(
-                    "atributo desconhecido; use somente `order = N`",
-                ));
+                return Err(meta.error("atributo desconhecido; use somente `order = N`"));
             }
 
             if order.is_some() {

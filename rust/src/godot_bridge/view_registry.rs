@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-
-use bevy_ecs::prelude::Entity;
+use bevy_ecs::{entity::EntityHashMap, prelude::Entity};
 use godot::{classes::Node2D, prelude::*};
 
 /// Mantém somente a associação lógica -> visual.
+///
+/// `EntityHashMap` usa o hasher especializado do Bevy para chaves `Entity`.
 #[derive(Default)]
 pub(crate) struct ViewRegistry {
-    views: HashMap<Entity, Gd<Node2D>>,
+    views: EntityHashMap<Gd<Node2D>>,
 }
 
 impl ViewRegistry {

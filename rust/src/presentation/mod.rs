@@ -8,6 +8,6 @@ pub(crate) use extraction::{
     extract_added_views, extract_changed_transforms, extract_despawn_requests,
 };
 pub(crate) use output::{
-    DespawnCommands, PresentationOutput, SpatialPatches, SpawnCommands, ViewKind,
+    DespawnCommands, EntityPatch, EntityPatches, PresentationOutput, SpawnCommands, ViewKind,
 };
 pub(crate) use present::Present;
