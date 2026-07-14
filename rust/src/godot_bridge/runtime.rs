@@ -10,14 +10,11 @@ use crate::{
         components::{MoveSpeed, Player, SimTransform2D},
         resources::{DeltaTime, EnemySpawnSequence, PlayerInput},
     },
-    presentation::{PresentationCommands, ViewKind, ViewSpec},
+    presentation::{PresentationOutput, ViewKind, ViewSpec},
     schedule::build_schedule,
 };
 
-/// Node Godot que coordena a integração.
-///
-/// Ele é a fronteira de entrada e saída: captura input do Godot, executa o ECS,
-/// drena o proxy de apresentação e entrega os comandos ao adapter.
+/// Node Godot que coordena entrada, simulação, extração e apresentação.
 #[derive(GodotClass)]
 #[class(base = Node)]
 pub(crate) struct EcsRuntime {
@@ -35,7 +32,7 @@ impl INode for EcsRuntime {
         world.insert_resource(PlayerInput::default());
         world.insert_resource(DeltaTime::default());
         world.insert_resource(EnemySpawnSequence::default());
-        world.insert_resource(PresentationCommands::default());
+        world.insert_resource(PresentationOutput::default());
 
         Self {
             base,
@@ -46,16 +43,12 @@ impl INode for EcsRuntime {
     }
 
     fn ready(&mut self) {
-        // O ready faz somente o bootstrap. Views novas e removidas são tratadas
-        // continuamente pelo proxy + bridge nos ticks seguintes.
         let mut views_root = Node2D::new_alloc();
         views_root.set_name("EcsViews");
         let views_root_as_base: Gd<Node> = views_root.clone().upcast();
         self.base_mut().add_child(&views_root_as_base);
-        self.bridge.initialize(views_root);
+        self.bridge.context_mut().initialize(views_root);
 
-        // Cria somente a entidade lógica. No primeiro tick, Added<ViewSpec> será
-        // traduzido para ViewCommand::Spawn pelo system de extração.
         let player_entity = self
             .world
             .spawn((
@@ -76,9 +69,7 @@ impl INode for EcsRuntime {
     }
 
     fn physics_process(&mut self, delta: f64) {
-        // ------------------------------------------------------------------
-        // 1) Captura do input pela engine Godot.
-        // ------------------------------------------------------------------
+        // 1) Godot -> Resources.
         let input = Input::singleton();
         let direction = input.get_vector(
             "move_left",
@@ -87,44 +78,30 @@ impl INode for EcsRuntime {
             "move_down",
         );
 
-        let spawn_enemy_just_pressed =
-            input.is_action_just_pressed("spawn_enemy");
-        let clear_enemies_just_pressed =
-            input.is_action_just_pressed("clear_enemies");
-
-        // ------------------------------------------------------------------
-        // 2) Godot -> Resources do ECS.
-        // ------------------------------------------------------------------
         *self.world.resource_mut::<PlayerInput>() = PlayerInput {
             direction_x: direction.x,
             direction_y: direction.y,
-            spawn_enemy_just_pressed,
-            clear_enemies_just_pressed,
+            spawn_enemy_just_pressed: input
+                .is_action_just_pressed("spawn_enemy"),
+            clear_enemies_just_pressed: input
+                .is_action_just_pressed("clear_enemies"),
         };
         self.world.resource_mut::<DeltaTime>().seconds = delta as f32;
 
-        // ------------------------------------------------------------------
-        // 3) Simulation -> PresentationExtraction -> Cleanup.
-        //
-        // Os extractors chamam o proxy PresentationCommands, que apenas
-        // acumula ViewCommands e não toca na API do Godot.
-        // ------------------------------------------------------------------
+        // 2) Simulation -> Extraction -> Cleanup.
         self.schedule.run(&mut self.world);
 
-        // ------------------------------------------------------------------
-        // 4) Drena o proxy sem clonar a fila e encerra o borrow do World.
-        // ------------------------------------------------------------------
-        let commands = self
-            .world
-            .resource_mut::<PresentationCommands>()
-            .take_ordered();
+        // 3) Move o produto de apresentação para fora do World e deixa outro
+        // `default()` vazio para o tick seguinte.
+        let output = {
+            let mut output =
+                self.world.resource_mut::<PresentationOutput>();
+            std::mem::take(&mut *output)
+        };
 
-        // ------------------------------------------------------------------
-        // 5) ECS -> Godot. Só o adapter toca nos Nodes.
-        // ------------------------------------------------------------------
-        self.bridge.apply(commands);
+        // 4) O derive chama cada presenter em ordem crescente de `order`.
+        self.bridge.apply(output);
 
-        // Delimita a rodada de change tracking no uso standalone de bevy_ecs.
         self.world.clear_trackers();
     }
 }

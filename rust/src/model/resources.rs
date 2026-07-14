@@ -15,7 +15,7 @@ pub(crate) struct DeltaTime {
     pub(crate) seconds: f32,
 }
 
-/// Sequência simples para posicionar inimigos do exemplo numa grade.
+/// Sequência simples para posicionar inimigos numa grade.
 #[derive(Resource, Default, Debug)]
 pub(crate) struct EnemySpawnSequence {
     pub(crate) next: u32,

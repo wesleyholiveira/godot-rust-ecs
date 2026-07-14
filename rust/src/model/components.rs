@@ -1,9 +1,6 @@
 use bevy_ecs::prelude::*;
 
-/// Transform lógico da simulação.
-///
-/// Este componente é a fonte da verdade para posição e rotação. A posição do
-/// Node2D no Godot é apenas uma representação desse estado.
+/// Transform lógico da simulação e fonte da verdade para posição/rotação.
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct SimTransform2D {
     pub(crate) x: f32,
@@ -24,8 +21,5 @@ pub(crate) struct Player;
 pub(crate) struct Enemy;
 
 /// Marca uma entidade para remoção no fim do tick.
-///
-/// A entidade não é destruída imediatamente, porque a fase de apresentação
-/// precisa primeiro registrar que o Node correspondente deve ser removido.
 #[derive(Component, Debug)]
 pub(crate) struct DespawnRequested;

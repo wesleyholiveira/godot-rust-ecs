@@ -2,23 +2,21 @@ use bevy_ecs::prelude::*;
 
 use crate::{
     model::components::{DespawnRequested, SimTransform2D},
-    presentation::{PresentationCommands, ViewSpec},
+    presentation::{PresentationOutput, ViewSpec},
 };
 
-/// Converte entidades com `ViewSpec` recém-adicionado em uma intenção de spawn.
-///
-/// O system usa a API do proxy; ele não manipula a fila diretamente e não
-/// conhece o `GodotBridge`.
+/// Entidades com ViewSpec recém-adicionado geram pedidos de criação.
 pub(crate) fn extract_added_views(
     added_views: Query<(Entity, &ViewSpec, &SimTransform2D), Added<ViewSpec>>,
-    mut presentation: ResMut<PresentationCommands>,
+    mut output: ResMut<PresentationOutput>,
 ) {
     for (entity, view, transform) in &added_views {
-        presentation.spawn_view(entity, view.kind, *transform);
+        output.spawn_view(entity, view.kind, *transform);
     }
 }
 
-/// Converte transforms inseridos ou alterados em comandos de apresentação.
+/// Transforms alterados viram patches espaciais; a última escrita por Entity
+/// substitui as anteriores no mesmo tick.
 pub(crate) fn extract_changed_transforms(
     transforms: Query<
         (Entity, &SimTransform2D),
@@ -28,19 +26,19 @@ pub(crate) fn extract_changed_transforms(
             Without<DespawnRequested>,
         ),
     >,
-    mut presentation: ResMut<PresentationCommands>,
+    mut output: ResMut<PresentationOutput>,
 ) {
     for (entity, transform) in &transforms {
-        presentation.set_transform(entity, *transform);
+        output.set_transform(entity, *transform);
     }
 }
 
-/// Registra a remoção da view antes que o cleanup destrua a Entity.
+/// Registra a remoção visual antes do cleanup destruir a Entity.
 pub(crate) fn extract_despawn_requests(
     entities: Query<Entity, Added<DespawnRequested>>,
-    mut presentation: ResMut<PresentationCommands>,
+    mut output: ResMut<PresentationOutput>,
 ) {
     for entity in &entities {
-        presentation.despawn_view(entity);
+        output.despawn_view(entity);
     }
 }

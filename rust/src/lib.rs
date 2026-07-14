@@ -1,8 +1,8 @@
-//! GDExtension Godot + Bevy ECS.
+//! GDExtension Godot + Bevy ECS com composição de presenters gerada por derive.
 //!
-//! Fluxo de cada physics tick:
-//! Godot Input -> Resources -> Systems de simulação -> Systems de extração
-//! -> PresentationCommands/ViewCommand -> GodotBridge -> Nodes do Godot.
+//! Fluxo por physics tick:
+//! Godot Input -> Resources -> Simulation -> Extraction -> PresentationOutput
+//! -> #[derive(PresentOutput)] -> presenters especializados -> Nodes Godot.
 
 mod extension;
 mod godot_bridge;

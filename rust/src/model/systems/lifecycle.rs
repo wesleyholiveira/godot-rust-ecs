@@ -8,9 +8,7 @@ use crate::{
     presentation::{ViewKind, ViewSpec},
 };
 
-/// Cria uma entidade inimiga quando a ação de spawn é pressionada.
-///
-/// `Commands` é a fila interna do Bevy para mudanças estruturais no World.
+/// Cria uma entidade inimiga usando a fila estrutural `Commands` do Bevy.
 pub(crate) fn spawn_enemy_system(
     input: Res<PlayerInput>,
     mut sequence: ResMut<EnemySpawnSequence>,

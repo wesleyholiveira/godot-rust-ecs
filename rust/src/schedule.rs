@@ -11,7 +11,6 @@ use crate::{
     presentation::{extract_added_views, extract_changed_transforms, extract_despawn_requests},
 };
 
-/// Fases conceituais do tick.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum GameSet {
     Simulation,
@@ -21,13 +20,8 @@ enum GameSet {
 
 pub(crate) fn build_schedule() -> Schedule {
     let mut schedule = Schedule::default();
-
-    // Para este exemplo pequeno, single-thread reduz cerimônia e overhead.
-    // Todos os acessos à API do Godot continuam fora do Schedule.
     schedule.set_executor(SingleThreadedExecutor::new());
 
-    // O encadeamento garante a ordem das fases. O scheduler aplica os Commands
-    // diferidos nos pontos de sincronização necessários entre fases ordenadas.
     schedule.configure_sets(
         (
             GameSet::Simulation,

@@ -528,6 +528,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "godot",
+ "presentation_derive",
 ]
 
 [[package]]
@@ -664,6 +665,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "presentation_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

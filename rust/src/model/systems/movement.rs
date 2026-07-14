@@ -6,15 +6,11 @@ use crate::model::{
 };
 
 /// Aplica o input ao transform lógico do jogador.
-///
-/// Este system não conhece Input, Node2D ou qualquer outro tipo do Godot.
 pub(crate) fn player_movement_system(
     input: Res<PlayerInput>,
     delta: Res<DeltaTime>,
     mut players: Query<(&mut SimTransform2D, &MoveSpeed), With<Player>>,
 ) {
-    // Evita obter acesso mutável ao transform quando não há movimento.
-    // Isso também evita marcar o componente como Changed sem necessidade.
     if input.direction_x == 0.0 && input.direction_y == 0.0 {
         return;
     }

@@ -1,11 +1,13 @@
-mod commands;
 mod components;
 mod extraction;
+mod output;
+mod present;
 
-pub(crate) use commands::{
-    PresentationCommands, SpawnView, TransformUpdate, ViewCommand, ViewKind,
-};
 pub(crate) use components::ViewSpec;
 pub(crate) use extraction::{
     extract_added_views, extract_changed_transforms, extract_despawn_requests,
 };
+pub(crate) use output::{
+    DespawnCommands, PresentationOutput, SpatialPatches, SpawnCommands, ViewKind,
+};
+pub(crate) use present::Present;

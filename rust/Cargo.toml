@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.95"
 publish = false
 
+[workspace]
+members = ["presentation_derive"]
+resolver = "3"
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -12,5 +16,8 @@ crate-type = ["cdylib"]
 # godot-rust 0.5 usa a API Godot 4.6 por padrão.
 godot = "0.5.4"
 
-# Usamos somente o ECS do Bevy, sem janela/renderização do Bevy.
+# Somente o ECS do Bevy; Godot continua dono de janela e renderização.
 bevy_ecs = "0.19.0"
+
+# Derive procedural local que gera a composição dos presenters.
+presentation_derive = { path = "presentation_derive" }
