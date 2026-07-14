@@ -180,3 +180,6 @@ Depois abra `godot/` no Godot 4.6+ e execute.
 O teste em `rust/presentation_derive/tests/derive.rs` declara os campos fora de
 ordem física (`90`, `10`, `40`) e verifica que o derive os executa como
 `10 -> 40 -> 90`.
+
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/94b50b31-8d4a-47ff-a658-74f7ba8fc72c" />
+
