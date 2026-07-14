@@ -139,3 +139,6 @@ godot = { version = "0.5.4", features = ["api-4-5"] }
 ```
 
 E ajuste `compatibility_minimum` no arquivo `.gdextension`.
+
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/e05919a5-55d6-4d12-85d0-8b88b2ef6472" />
+
